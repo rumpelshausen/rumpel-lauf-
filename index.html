@@ -151,9 +151,9 @@ addEventListener('resize', resize); resize();
 // ---------- Storage ----------
 const KEY = 'rcc-rumpellauf-best';
 const BOARD_KEY = 'rcc-rumpellauf-board-v1';
-// Für die gemeinsame Bestenliste hier nach Einrichtung von Supabase URL und anon/public-Key eintragen.
-// Niemals den service_role-Key in diese öffentliche Datei eintragen.
-const ONLINE_BOARD = { url: 'SUPABASE_URL_HIER_EINTRAGEN', anonKey: 'SUPABASE_ANON_KEY_HIER_EINTRAGEN' };
+// Für eine gemeinsame Online-Bestenliste werden später Supabase-Projekt-URL und anon-Key eingetragen.
+// Ohne diese Zugangsdaten funktioniert die Bestenliste lokal auf dem jeweiligen Gerät.
+const ONLINE_BOARD = { url: 'https://orzidijcqwndkycyvytno.supabase.co', anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9yemlkaWpjcXduZGt5Y3Z5dG5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5OTk1MDYsImV4cCI6MjEwOTU3NTUwNn0.3NfouBuz9QWnP_KBgvPEUtugn9j3_09YbG03OvR8ytw' };
 const onlineReady = () => ONLINE_BOARD.url.startsWith('https://') && ONLINE_BOARD.anonKey && !ONLINE_BOARD.anonKey.includes('_HIER_');
 function loadBest(){ try { return parseInt(localStorage.getItem(KEY)||'0',10)||0; } catch(e){ return 0; } }
 function saveBest(v){ try { localStorage.setItem(KEY, String(v)); } catch(e){} }
@@ -162,41 +162,9 @@ function storeBoard(v){ try { localStorage.setItem(BOARD_KEY,JSON.stringify(v.sl
 let best = loadBest(), lastScore = 0;
 function showBest(){ document.getElementById('bestMenu').textContent = best ? 'Bestleistung: ' + best.toLocaleString('de-DE') + ' Punkte' : ''; }
 function renderBoard(id,rows=loadBoard()){ const el=document.getElementById(id); if(!el)return; el.innerHTML=rows.length?rows.slice(0,10).map(r=>'<li>'+escapeHTML(r.name)+' <span>'+Number(r.score).toLocaleString('de-DE')+'</span></li>').join(''):'<li>Noch keine Einträge</li>'; }
-function setBoardStatus(message){ const st=document.getElementById('boardStatus'); if(st)st.textContent=message; }
-async function refreshOnlineBoard(){
-  if(!onlineReady()){ setBoardStatus('Online-Bestenliste wird nach der Veröffentlichung aktiviert.'); return; }
-  try{
-    const r=await fetch(ONLINE_BOARD.url+'/rest/v1/scores?select=name,score&order=score.desc&limit=10',{headers:{apikey:ONLINE_BOARD.anonKey,Authorization:'Bearer '+ONLINE_BOARD.anonKey}});
-    if(!r.ok)throw Error('HTTP '+r.status);
-    const rows=await r.json();
-    ['boardMenu','boardWin','boardOver'].forEach(id=>renderBoard(id,rows));
-    setBoardStatus('Gemeinsame Online-Bestenliste');
-  }catch(e){ setBoardStatus('Online-Liste gerade nicht erreichbar. Bitte später erneut versuchen.'); }
-}
+async function refreshOnlineBoard(){ if(!onlineReady())return; try{const r=await fetch(ONLINE_BOARD.url+'/rest/v1/bestenliste?select=spielername,punkte&order=punkte.desc&limit=10',{headers:{apikey:ONLINE_BOARD.anonKey,Authorization:'Bearer '+ONLINE_BOARD.anonKey}});if(!r.ok)throw Error('HTTP '+r.status);const data=await r.json();const rows=data.map(x=>({name:x.spielername,score:x.punkte}));['boardMenu','boardWin','boardOver'].forEach(id=>renderBoard(id,rows));const st=document.getElementById('boardStatus');if(st)st.textContent='Gemeinsame Online-Bestenliste';}catch(e){const st=document.getElementById('boardStatus');if(st)st.textContent='Online-Liste gerade nicht erreichbar – lokale Liste wird angezeigt.';}}
 function escapeHTML(v){ return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function saveLocalBest(name,score){
-  const key=name.trim().toLocaleLowerCase('de-DE');
-  const rows=loadBoard();
-  const existing=rows.find(r=>String(r.name).trim().toLocaleLowerCase('de-DE')===key);
-  if(existing){ if(score>Number(existing.score))existing.score=score; }
-  else rows.push({name,score});
-  rows.sort((a,b)=>Number(b.score)-Number(a.score)); storeBoard(rows);
-}
-async function addScore(inputId){
-  const field=document.getElementById(inputId);
-  const name=(field.value||'').replace(/[<>]/g,'').trim().slice(0,18)||'Rumpel-Narr';
-  saveLocalBest(name,lastScore);
-  ['boardMenu','boardWin','boardOver'].forEach(id=>renderBoard(id));
-  field.value=name; field.disabled=true;
-  const button=field.parentElement.querySelector('button'); if(button)button.disabled=true;
-  if(onlineReady()){
-    try{
-      const r=await fetch(ONLINE_BOARD.url+'/rest/v1/rpc/submit_score',{method:'POST',headers:{apikey:ONLINE_BOARD.anonKey,Authorization:'Bearer '+ONLINE_BOARD.anonKey,'Content-Type':'application/json'},body:JSON.stringify({p_name:name,p_score:lastScore})});
-      if(!r.ok)throw Error('HTTP '+r.status);
-      await refreshOnlineBoard();
-    }catch(e){ setBoardStatus('Eintrag nur lokal gespeichert. Online-Übertragung fehlgeschlagen – bitte später erneut versuchen.'); }
-  } else setBoardStatus('Demo-Modus: Ergebnisse sind noch nicht geräteübergreifend.');
-}
+async function addScore(inputId){ const field=document.getElementById(inputId), name=(field.value||'').trim().slice(0,18)||'Rumpel-Narr'; const rows=loadBoard(); rows.push({name,score:lastScore}); rows.sort((a,b)=>b.score-a.score); storeBoard(rows); ['boardMenu','boardWin','boardOver'].forEach(id=>renderBoard(id)); field.value=name;field.disabled=true; if(onlineReady()){try{const r=await fetch(ONLINE_BOARD.url+'/rest/v1/bestenliste',{method:'POST',headers:{apikey:ONLINE_BOARD.anonKey,Authorization:'Bearer '+ONLINE_BOARD.anonKey,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({spielername:name,punkte:lastScore})});if(!r.ok)throw Error('HTTP '+r.status);await refreshOnlineBoard();}catch(e){const st=document.getElementById('boardStatus');if(st)st.textContent='Eintrag lokal gespeichert; Online-Übertragung fehlgeschlagen.';}} }
 showBest(); renderBoard('boardMenu'); refreshOnlineBoard();
 
 // ---------- Background ----------
@@ -653,7 +621,7 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 p.y=GY; requestAnimationFrame(loop);
-if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js?v=rcc-online-board-1').catch(()=>{});
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js?v=controls-4').catch(()=>{});
 
 // ---------- Input ----------
 const duckBtn=document.getElementById('duckBtn'), jumpBtn=document.getElementById('jumpBtn');
